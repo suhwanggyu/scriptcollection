@@ -1,0 +1,136 @@
+pipeline {
+    parameters {
+        string(name:'serv', defaultValue:'web',description:'test server')
+        string(name:'hostip', defaultValue:'', description:'new ip')
+    }
+    environment {
+        registry="mize159/springserver"
+        registryCredential='dockerhub'
+        dockerImage = ''
+        receipt="tjdhkdrb@gmail.com"
+    }
+    agent any
+    stages {
+        stage("git pull") {
+            steps {
+                git branch:'master',
+                    url:'https://github.com/WSJMdev/wsjm.git'
+            }
+        }
+        /*
+        stage("build") {
+            steps{
+                script {
+                    dockerImage = docker.build registry + ":$BUILD_NUMBER"
+                }
+            }
+        }
+        
+        stage("push") {
+            steps {
+                script {
+                    docker.withRegistry('',registryCredential){
+                        dockerImage.push()
+                    }
+                    
+                }
+                
+            }
+        }
+        
+        stage("Remove") {
+            steps {
+                sh "docker rmi $registry:$BUILD_NUMBER"
+            }
+        }
+        */
+        stage("GarbageCollecTESTSERV") {
+            steps {
+                sshPublisher(
+                    continueOnError: true, failOnError: false,
+                    publishers: [
+                        sshPublisherDesc(
+                            configName: "$params.serv",
+                            verbose: true,
+                            transfers: [
+                                sshTransfer(execCommand: "docker kill \$(docker ps | grep springserver | tr ' ' '\t' | cut -f1)")
+                            ]
+                        )
+                    ]
+                )
+            }
+        }
+        
+        stage("TestDeploy") {
+            steps {
+                sshPublisher(
+                    continueOnError: false, failOnError: true,
+                    publishers: [
+                        sshPublisherDesc(
+                            configName: "$params.serv",
+                            verbose: true,
+                            transfers: [
+                                sshTransfer(execCommand: "docker login --username mize159 --password ahdk2424159!"),
+                                sshTransfer(execCommand: "cd ~/spring"),
+                                sshTransfer(execCommand: "rm -rf ./spring"),
+                                sshTransfer(execCommand: "git clone https://github.com/WSJMdev/wsjm.git ~/spring"),
+                                sshTransfer(execCommand: "docker build -t " + registry +":$BUILD_NUMBER ~/spring"),
+                                sshTransfer(execCommand: "docker run -d -p 3000:8080 " + registry +":$BUILD_NUMBER")
+                                //sshTransfer(execCommand: "docker pull " + registry +":$BUILD_NUMBER"),
+                                //sshTransfer(execCommand: "docker run -d -p 3000:8080 " + registry +":$BUILD_NUMBER")
+                            ]
+                        )
+                    ]
+                )
+            }
+        }
+        
+        stage("Change server") {
+            when {
+                expression {params.serv != 'web'}
+            }
+            steps {
+                build job : 'devcom', parameters: [string(name:'apihost', value:'$params.hostip')]
+            }
+        }
+        
+    }
+    post {
+        success {
+            echo 'Success!'
+            mail bcc: '', 
+                body: "Project: (backend) 서버 빌드 작업 <br>Build Number: ${env.BUILD_NUMBER} <br> URL de build: ${env.BUILD_URL}", 
+                cc: '', 
+                charset: 'UTF-8', 
+                from: '', 
+                mimeType: 'text/html', 
+                replyTo: '', 
+                subject: "성공 CI: Project name -> 서버(backend) 서버 빌드 작업", 
+                to: "${receipt}";
+        }
+        failure {
+            echo 'Fail!'
+            mail bcc: '', 
+                body: "Project: (backend) 서버 빌드 작업 <br>Build Number: ${env.BUILD_NUMBER} <br> URL de build: ${env.BUILD_URL}", 
+                cc: '', 
+                charset: 'UTF-8', 
+                from: '', 
+                mimeType: 'text/html', 
+                replyTo: '', 
+                subject: "에러 CI: Project name -> (Backend) 서버 빌드 작업", 
+                to: "${receipt}";
+        }
+        unstable {
+            echo 'unstable!!!'
+            mail bcc: '', 
+                body: "Project: (backend) 서버 빌드 작업이 완전하게 끝나지 않았습니다.  <br>Build Number: ${env.BUILD_NUMBER} <br> URL de build: ${env.BUILD_URL}", 
+                cc: '', 
+                charset: 'UTF-8', 
+                from: '', 
+                mimeType: 'text/html', 
+                replyTo: '', 
+                subject: "unstable CI: Project name -> (Backend) 서버 빌드 작업", 
+                to: "${receipt}";
+        }
+    }
+}
